@@ -7,60 +7,92 @@ import io
 template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'templates'))
 app = Flask(__name__, template_folder=template_dir)
 
-# --- HELPER: KEY GENERATOR ---
+# --- HELPER ---
 def generate_key():
     return Fernet.generate_key().decode()
 
-# --- ROUTES ---
 @app.route('/')
 def home():
     return render_template('index.html')
 
 # ==========================================
-# MODE 1: OBFUSCATOR (Runable Scrambled Code)
+# MODE 1: OBFUSCATOR (UTF-8 SAFE & EMOJI SUPPORT)
 # ==========================================
 @app.route('/api/obfuscate', methods=['POST'])
 def obfuscate():
-    # Cek apakah user upload file atau input text
     code = ""
     filename = "result"
-    lang = request.form.get('lang') # python, javascript, html
+    lang = request.form.get('lang') 
 
+    # 1. Handle Input (File / Text)
     if 'file' in request.files and request.files['file'].filename != '':
         f = request.files['file']
-        code = f.read().decode('utf-8', errors='ignore')
+        # Pakai utf-8 dan ignore error biar emoji ga bikin crash
+        code = f.read().decode('utf-8', errors='ignore') 
         filename = f.filename
     else:
         code = request.form.get('code_text')
         if not code: return jsonify({'error': 'Code kosong!'})
 
-    # Logic Obfuscation
-    result_code = ""
+    # 2. Logic Obfuscation (ANTI-GARBLED TEXT)
     try:
+        # Encode script asli ke Base64 UTF-8
         encoded_bytes = base64.b64encode(code.encode('utf-8'))
         encoded_str = encoded_bytes.decode('utf-8')
+        
+        result_code = ""
+        ext = ".txt"
 
         if lang == 'python':
-            result_code = f'import base64;exec(base64.b64decode("{encoded_str}"))'
+            # Python support utf-8 native, aman
+            result_code = f'# Encrypted by RayCrypto\nimport base64\nexec(base64.b64decode("{encoded_str}").decode("utf-8"))'
             ext = ".py"
+            
         elif lang == 'javascript':
-            result_code = f'eval(atob("{encoded_str}"));'
+            # JS butuh decodeURIComponent(escape(...)) buat handle Emoji/UTF-8
+            result_code = f"""
+// Encrypted by RayCrypto
+var _0x = "{encoded_str}";
+var _0xDec = function(str) {{
+    return decodeURIComponent(escape(window.atob(str)));
+}};
+eval(_0xDec(_0x));
+"""
             ext = ".js"
+
         elif lang == 'html':
-            result_code = f'<script>document.write(atob("{encoded_str}"));</script>'
+            # HTML Paling rawan error encoding. Kita pake wrapper script UTF-8 safe.
+            result_code = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Protected Page</title>
+</head>
+<body>
+<script type="text/javascript">
+    var _0x = "{encoded_str}";
+    function _utf8_decode(str) {{
+        return decodeURIComponent(escape(window.atob(str)));
+    }}
+    document.write(_utf8_decode(_0x));
+</script>
+</body>
+</html>"""
             ext = ".html"
+            
         else:
             return jsonify({'error': 'Bahasa tidak support!'})
 
-        # Return sebagai file download
+        # Kirim File
         mem = io.BytesIO()
-        mem.write(result_code.encode('utf-8'))
+        mem.write(result_code.encode('utf-8')) # Pastikan output file formatnya UTF-8
         mem.seek(0)
         
         return send_file(
             mem, 
             as_attachment=True, 
-            download_name=f"OBFUSCATED_{filename}{ext}", 
+            download_name=f"ENC_{filename}{ext}", 
             mimetype="text/plain"
         )
 
@@ -69,30 +101,27 @@ def obfuscate():
 
 
 # ==========================================
-# MODE 2: VAULT (Encryption Mati / Lock)
+# MODE 2: VAULT (SAMA SEPERTI SEBELUMNYA)
 # ==========================================
 @app.route('/api/vault/lock', methods=['POST'])
 def vault_lock():
     key = generate_key()
     f_crypto = Fernet(key.encode())
     
-    # 1. Jika Input Text Biasa
     if 'text_data' in request.form and request.form['text_data']:
         text = request.form['text_data']
-        enc_text = f_crypto.encrypt(text.encode()).decode()
+        # Encode text input ke bytes utf-8 dulu sebelum encrypt
+        enc_text = f_crypto.encrypt(text.encode('utf-8')).decode('utf-8')
         return jsonify({'type': 'text', 'result': enc_text, 'key': key})
 
-    # 2. Jika Input File (Foto/Video/Dll)
     if 'file_data' in request.files:
         file = request.files['file_data']
         file_bytes = file.read()
         
-        # Limitasi Vercel (PENTING: Vercel punya limit body size 4.5MB)
         if len(file_bytes) > 4 * 1024 * 1024:
-            return jsonify({'error': 'File terlalu besar untuk Serverless (Max 4MB).'})
+            return jsonify({'error': 'File max 4MB!'})
 
         enc_bytes = f_crypto.encrypt(file_bytes)
-        
         mem = io.BytesIO()
         mem.write(enc_bytes)
         mem.seek(0)
@@ -100,39 +129,35 @@ def vault_lock():
         return jsonify({
             'type': 'file',
             'filename': file.filename + ".enc",
-            'file_b64': base64.b64encode(mem.getvalue()).decode(), # Kirim base64 ke frontend
+            'file_b64': base64.b64encode(mem.getvalue()).decode('utf-8'),
             'key': key
         })
 
-    return jsonify({'error': 'Tidak ada data!'})
+    return jsonify({'error': 'Data kosong!'})
 
 @app.route('/api/vault/unlock', methods=['POST'])
 def vault_unlock():
     key = request.form.get('key')
-    if not key: return jsonify({'error': 'Mana kuncinya?'})
+    if not key: return jsonify({'error': 'Butuh Key!'})
     
     try:
         f_crypto = Fernet(key.encode())
 
-        # 1. Unlock Text
         if 'text_data' in request.form and request.form['text_data']:
             enc_text = request.form['text_data']
-            dec_text = f_crypto.decrypt(enc_text.encode()).decode()
+            dec_text = f_crypto.decrypt(enc_text.encode('utf-8')).decode('utf-8')
             return jsonify({'type': 'text', 'result': dec_text})
 
-        # 2. Unlock File
         if 'file_data' in request.files:
             file = request.files['file_data']
             file_bytes = file.read()
             dec_bytes = f_crypto.decrypt(file_bytes)
-            
-            # Hapus ekstensi .enc
             orig_name = file.filename.replace('.enc', '')
             
             return jsonify({
                 'type': 'file',
-                'filename': "UNLOCKED_" + orig_name,
-                'file_b64': base64.b64encode(dec_bytes).decode()
+                'filename': "OPEN_" + orig_name,
+                'file_b64': base64.b64encode(dec_bytes).decode('utf-8')
             })
             
     except Exception as e:
