@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vault AES-256</title>
+
+<style>
+body {
+    font-family: Arial, sans-serif;
+    background: #0f172a;
+    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+.card {
+    background: #1e293b;
+    padding: 30px;
+    border-radius: 12px;
+    width: 400px;
+}
+h2 {
+    margin-top: 0;
+}
+input, button {
+    width: 100%;
+    padding: 10px;
+    margin-top: 10px;
+    border-radius: 6px;
+    border: none;
+}
+input {
+    background: #334155;
+    color: white;
+}
+button {
+    cursor: pointer;
+    font-weight: bold;
+}
+.lock { background: #dc2626; color: white; }
+.unlock { background: #16a34a; color: white; }
+.result {
+    margin-top: 15px;
+    font-size: 14px;
+    word-break: break-all;
+}
+</style>
+</head>
+<body>
+
+<div class="card">
+    <h2>🔐 Secure Vault</h2>
+
+    <input type="password" id="password" placeholder="Masukkan Password">
+
+    <input type="file" id="file">
+
+    <button class="lock" onclick="lockFile()">Encrypt</button>
+    <button class="unlock" onclick="unlockFile()">Decrypt</button>
+
+    <div class="result" id="result"></div>
+</div>
+
+<script>
+async function lockFile() {
+    const password = document.getElementById("password").value;
+    const file = document.getElementById("file").files[0];
+    if(!password || !file) return alert("Password dan file wajib!");
+
+    const formData = new FormData();
+    formData.append("password", password);
+    formData.append("file", file);
+
+    const res = await fetch("/api/lock", {
+        method: "POST",
+        body: formData
+    });
+
+    const data = await res.json();
+    if(data.error) return alert(data.error);
+
+    downloadFile(data.file_b64, data.filename);
+    document.getElementById("result").innerText = "File berhasil dienkripsi.";
+}
+
+async function unlockFile() {
+    const password = document.getElementById("password").value;
+    const file = document.getElementById("file").files[0];
+    if(!password || !file) return alert("Password dan file wajib!");
+
+    const formData = new FormData();
+    formData.append("password", password);
+    formData.append("file", file);
+
+    const res = await fetch("/api/unlock", {
+        method: "POST",
+        body: formData
+    });
+
+    const data = await res.json();
+    if(data.error) return alert(data.error);
+
+    downloadFile(data.file_b64, data.filename);
+    document.getElementById("result").innerText = "File berhasil didekripsi.";
+}
+
+function downloadFile(base64Data, filename) {
+    const link = document.createElement("a");
+    link.href = "data:application/octet-stream;base64," + base64Data;
+    link.download = filename;
+    link.click();
+}
+</script>
+
+</body>
+</html>
